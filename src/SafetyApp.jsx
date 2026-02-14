@@ -1,27 +1,49 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
+import { initializeApp } from 'firebase/app';
 import { 
-  AlertTriangle, 
-  CheckCircle, 
-  ClipboardList, 
-  MapPin, 
-  User, 
-  Activity, 
-  Plus, 
-  BarChart3,
-  X,
-  Mail,
-  Download,
-  ArrowLeft,
-  ShieldCheck,
-  Leaf,
-  Info,
-  Lock,
-  LogOut,
-  ChevronRight,
-  Globe
+  getAuth, 
+  signInAnonymously, 
+  signInWithCustomToken, 
+  onAuthStateChanged 
+} from 'firebase/auth';
+import { 
+  getFirestore, 
+  collection, 
+  addDoc, 
+  onSnapshot 
+} from 'firebase/firestore';
+import { 
+  AlertTriangle, ClipboardList, MapPin, User, Activity, 
+  Plus, BarChart3, X, Mail, Download, ArrowLeft, ShieldCheck, 
+  Leaf, Info, Lock, LogOut, ChevronRight, Globe 
 } from 'lucide-react';
 
-// --- TRADUCCIONES ---
+// --- CONFIGURACIÓN DE FIREBASE ---
+// El sistema detectará automáticamente si estás en el entorno de vista previa o en tu laptop.
+// Si estás en tu laptop, asegúrate de reemplazar los valores de abajo con los de tu consola de Firebase.
+const firebaseConfig = typeof __firebase_config !== 'undefined' 
+  ? JSON.parse(__firebase_config) 
+  : {
+      apiKey: "AIzaSyD_9TOuzhsE4lVYx1NlmbpvucHtl8EbVAI",
+  authDomain: "app-reporte-ssoma-hgp.firebaseapp.com",
+  projectId: "app-reporte-ssoma-hgp",
+  storageBucket: "app-reporte-ssoma-hgp.firebasestorage.app",
+  messagingSenderId: "973942937347",
+  appId: "1:973942937347:web:cfd80eeebfaf3e7797fb36"
+    };
+
+// Inicialización de Firebase con validación básica para evitar errores de ejecución
+let app, auth, db;
+try {
+  app = initializeApp(firebaseConfig);
+  auth = getAuth(app);
+  db = getFirestore(app);
+} catch (error) {
+  console.error("Error al inicializar Firebase:", error);
+}
+
+const appId = typeof __app_id !== 'undefined' ? __app_id : 'hydroglobal-peru-racs';
+
 const translations = {
   es: {
     appTitle: "HYDROGLOBAL PERÚ",
@@ -82,18 +104,18 @@ const translations = {
     riskLegends: {
       alto: {
         title: "NIVEL DE RIESGO ALTO",
-        sst: "SST: Condición o acto subestándar que de no implementar se controles podría generar lesión con incapacidad permanente, tales como amputaciones, fracturas mayores e inclusive la muerte con relaciona la salud podría generar daños irreversibles tales como intoxicaciones, lesiones múltiples, lesiones letales, pérdida auditiva, etc.",
-        ma: "MA: Daños irreversibles al ambiente. No es posible aplicar una remediación al 100% con los controles actuales."
+        sst: "SST: Condición o acto subestándar que podría generar lesión con incapacidad permanente o muerte.",
+        ma: "MA: Daños irreversibles al ambiente."
       },
       medio: {
         title: "NIVEL DE RIESGO MEDIO",
-        sst: "SST: Condición o acto subestándar que de no implementarse controles podría generar lesiones con incapacidad temporal tales como fracturas menores, entre otros. Con relación a salud podría generar daños reversibles tales como dermatitis, asmas, trastornos musculoesqueléticos, etc.",
-        ma: "MA: Daños reversibles al ambiente aplicando controles. Es posible aplicar controles y restablecer las condiciones iniciales del ambiente."
+        sst: "SST: Podría generar lesiones con incapacidad temporal.",
+        ma: "MA: Daños reversibles al ambiente aplicando controles."
       },
       bajo: {
         title: "NIVEL DE RIESGO BAJO",
-        sst: "SST: Condición o acto subestándar que de no implementarse controles podría generar lesiones sin discapacidad tales como pequeños cortes o magulladuras. Con relación a la salud podría generar daños irreversibles tales como molestias, dolor de cabeza, etc.",
-        ma: "MA: Daños potenciales o reales reversibles al ambiente en forma inmediata."
+        sst: "SST: Podría generar lesiones sin discapacidad (cortes menores).",
+        ma: "MA: Daños potenciales reversibles en forma inmediata."
       }
     }
   },
@@ -103,24 +125,24 @@ const translations = {
     adminAccess: "Admin Access",
     dashboard: "Dashboard",
     logout: "Logout",
-    loginTitle: "RACS MANAGEMENT SYSTEM",
-    loginSub: "Restricted access for SSOMA personnel",
+    loginTitle: "RACS SYSTEM",
+    loginSub: "SSOMA Access Only",
     user: "User",
     pass: "Password",
-    loginBtn: "ENTER PANEL",
-    backToForm: "Back to Public Form",
-    loginError: "Incorrect Credentials",
-    adminDashboard: "Administrative Dashboard",
-    activeSession: "Active Session: SSOMA",
-    totalReports: "Total Reports",
-    criticalRisk: "Critical (High)",
+    loginBtn: "LOGIN",
+    backToForm: "Back",
+    loginError: "Error",
+    adminDashboard: "Admin Dashboard",
+    activeSession: "Active: SSOMA",
+    totalReports: "Total",
+    criticalRisk: "High Risk",
     safetySST: "SST Safety",
     envMA: "Environment",
-    reportList: "Findings List",
+    reportList: "Findings",
     back: "BACK",
-    docManagement: "Management Document",
-    racsTitle: "SUBSTANDARD ACTS AND CONDITIONS REPORT - RACS",
-    racsArea: "OCCUPATIONAL SAFETY AND HEALTH AREA",
+    docManagement: "Management Doc",
+    racsTitle: "RACS REPORT",
+    racsArea: "SSOMA AREA",
     code: "CODE",
     date: "DATE",
     rev: "REV",
@@ -130,45 +152,33 @@ const translations = {
     location: "Location",
     classification: "Classification",
     sst: "SST",
-    ma: "ENVIRONMENT",
+    ma: "ENV",
     acto: "ACT",
-    condicion: "CONDITION",
-    riskLevel: "Finding Risk Level",
-    eventDesc: "Event Description",
-    immediateAction: "Immediate Action Implemented",
-    signatureReporter: "Reporter's Signature",
-    signatureSSOMA: "Appr. SSOMA Hydroglobal Peru",
-    downloadPDF: "DOWNLOAD PDF (FR-018)",
-    notifySSOMA: "NOTIFY SSOMA",
+    condicion: "COND",
+    riskLevel: "Risk Level",
+    eventDesc: "Description",
+    immediateAction: "Action",
+    signatureReporter: "Signature",
+    signatureSSOMA: "Appr. SSOMA",
+    downloadPDF: "DOWNLOAD PDF",
+    notifySSOMA: "NOTIFY",
     formTitle: "RACS REPORT",
     formSub: "Hydroglobal Peru S.A.C.",
     system: "System",
     nature: "Nature",
-    placeholderArea: "e.g., Treatment Plant",
-    placeholderName: "Your full name",
-    placeholderDesc: "Detail the observed act or condition...",
-    placeholderAction: "What measure was taken at the time of the finding?",
-    generateReport: "GENERATE REPORT AND CONTINUE",
+    placeholderArea: "Location",
+    placeholderName: "Full Name",
+    placeholderDesc: "Details...",
+    placeholderAction: "Immediate action...",
+    generateReport: "CONTINUE",
     riskAlto: "HIGH",
     riskMedio: "MEDIUM",
     riskBajo: "LOW",
-    riskRef: "Reference from format HGP-SGIII-SST-FR-018:",
+    riskRef: "FR-018 Ref:",
     riskLegends: {
-      alto: {
-        title: "HIGH RISK LEVEL",
-        sst: "SST: Substandard condition or act that, if controls are not implemented, could generate permanent disabling injury, such as amputations, major fractures and even death. Regarding health, it could generate irreversible damage such as poisoning, multiple injuries, lethal injuries, hearing loss, etc.",
-        ma: "MA: Irreversible damage to the environment. It is not possible to apply 100% remediation with current controls."
-      },
-      medio: {
-        title: "MEDIUM RISK LEVEL",
-        sst: "SST: Substandard condition or act that, if controls are not implemented, could generate temporary disabling injuries such as minor fractures, among others. Regarding health, it could generate reversible damage such as dermatitis, asthma, musculoskeletal disorders, etc.",
-        ma: "MA: Reversible damage to the environment by applying controls. It is possible to apply controls and restore the initial conditions of the environment."
-      },
-      bajo: {
-        title: "LOW RISK LEVEL",
-        sst: "SST: Substandard condition or act that, if controls are not implemented, could generate non-disabling injuries such as small cuts or bruises. Regarding health, it could generate irreversible damage such as discomfort, headache, etc.",
-        ma: "MA: Potential or real reversible damage to the environment immediately."
-      }
+      alto: { title: "HIGH RISK", sst: "Permanent injury or death risk.", ma: "Irreversible damage." },
+      medio: { title: "MEDIUM RISK", sst: "Temporary disability risk.", ma: "Reversible with controls." },
+      bajo: { title: "LOW RISK", sst: "Minor injury risk.", ma: "Immediate reversible damage." }
     }
   },
   zh: {
@@ -177,29 +187,29 @@ const translations = {
     adminAccess: "管理员登录",
     dashboard: "仪表板",
     logout: "登出",
-    loginTitle: "RACS 管理系统",
-    loginSub: "仅限 SSOMA 人员访问",
-    user: "用户名",
+    loginTitle: "RACS 系统",
+    loginSub: "SSOMA 专用",
+    user: "用户",
     pass: "密码",
-    loginBtn: "进入面板",
-    backToForm: "返回公共表单",
-    loginError: "凭据错误",
-    adminDashboard: "行政管理面板",
-    activeSession: "当前会话：SSOMA",
+    loginBtn: "登录",
+    backToForm: "返回",
+    loginError: "错误",
+    adminDashboard: "管理面板",
+    activeSession: "状态：SSOMA",
     totalReports: "报告总数",
-    criticalRisk: "关键（高）",
+    criticalRisk: "高风险",
     safetySST: "SST 安全",
     envMA: "环境",
-    reportList: "发现列表",
+    reportList: "列表",
     back: "返回",
     docManagement: "管理文件",
-    racsTitle: "违规行为与状况报告 - RACS",
-    racsArea: "职业安全与健康部门",
+    racsTitle: "RACS 报告",
+    racsArea: "SSOMA 部门",
     code: "代码",
     date: "日期",
     rev: "版本",
     page: "页码",
-    reporterData: "报告人信息",
+    reporterData: "报告人资料",
     name: "姓名",
     location: "地点",
     classification: "分类",
@@ -209,40 +219,28 @@ const translations = {
     condicion: "状况",
     riskLevel: "风险等级",
     eventDesc: "事件描述",
-    immediateAction: "立即采取的措施",
-    signatureReporter: "报告人签名",
-    signatureSSOMA: "SSOMA 审批 (Hydroglobal 秘鲁)",
-    downloadPDF: "下载 PDF (FR-018)",
-    notifySSOMA: "通知 SSOMA",
+    immediateAction: "立即措施",
+    signatureReporter: "签名",
+    signatureSSOMA: "SSOMA 审批",
+    downloadPDF: "下载 PDF",
+    notifySSOMA: "通知",
     formTitle: "RACS 报告",
     formSub: "Hydroglobal Peru S.A.C.",
     system: "系统",
     nature: "性质",
-    placeholderArea: "例如：处理厂",
-    placeholderName: "您的全名",
-    placeholderDesc: "详细描述观察到的行为或状况...",
-    placeholderAction: "发现当时采取了什么措施？",
-    generateReport: "生成报告并继续",
+    placeholderArea: "地点",
+    placeholderName: "全名",
+    placeholderDesc: "详细信息...",
+    placeholderAction: "采取了什么措施？",
+    generateReport: "继续",
     riskAlto: "高",
     riskMedio: "中",
     riskBajo: "低",
-    riskRef: "参考 HGP-SGIII-SST-FR-018 格式：",
+    riskRef: "FR-018 参考：",
     riskLegends: {
-      alto: {
-        title: "高风险等级",
-        sst: "SST：如果不实施控制，不标准状况或行为可能导致永久性残疾，如截肢、重大骨折甚至死亡。关于健康，可能产生不可逆转的损害，如中毒、多发伤、致命伤、听力损失等。",
-        ma: "MA：对环境产生不可逆转的损害。目前的控制措施无法实现 100% 的修复。"
-      },
-      medio: {
-        title: "中风险等级",
-        sst: "SST：如果不实施控制，不标准状况或行为可能导致暂时性残疾，如轻微骨折等。关于健康，可能产生可逆转的损害，如皮炎、哮喘、肌肉骨骼疾病等。",
-        ma: "MA：通过实施控制措施可对环境产生可逆转损害。可以实施控制措施并恢复环境的初始状态。"
-      },
-      bajo: {
-        title: "低风险等级",
-        sst: "SST：如果不实施控制，不标准状况或行为可能导致非致残性伤害，如小割伤或瘀伤。关于健康，可能产生不可逆转的损害，如不适、头痛等。",
-        ma: "MA：对环境产生的潜在或真实的可立即逆转的损害。"
-      }
+      alto: { title: "高风险", sst: "永久性伤害或死亡风险。", ma: "不可逆转的损害。" },
+      medio: { title: "中风险", sst: "暂时性残疾风险。", ma: "可通过控制修复。" },
+      bajo: { title: "低风险", sst: "轻微伤害风险。", ma: "可立即修复。" }
     }
   }
 };
@@ -251,233 +249,219 @@ export default function App() {
   const [lang, setLang] = useState('es');
   const [currentView, setCurrentView] = useState('form'); 
   const [isAuthenticated, setIsAuthenticated] = useState(false);
+  const [userAuth, setUserAuth] = useState(null);
   const [selectedReport, setSelectedReport] = useState(null);
-  const [reports, setReports] = useState([
-    {
-      id: "HGP-RACS-2026-001",
-      type: 'condicion',
-      category: 'SST',
-      risk: 'alto',
-      area: 'Planta de Procesos',
-      description: 'Andamio mal asegurado en nivel 3, riesgo de caída de altura.',
-      status: 'pendiente',
-      date: '2024-02-14',
-      reporter: 'Frans Vargas',
-      action: 'Se paralizó la labor y se solicitó re-armado por personal certificado.'
-    }
-  ]);
+  const [reports, setReports] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [configError, setConfigError] = useState(null);
 
   const t = translations[lang];
 
-  const emailsSSOMA = [
-    "fransvargas@hydroglobal.hk",
-    "saludocupacional@hydroglobal.hk"
-  ];
+  useEffect(() => {
+    const initAuth = async () => {
+      // Si la API Key no es válida o es de ejemplo, mostramos error amigable
+      if (!firebaseConfig.apiKey || firebaseConfig.apiKey.includes("TU_API_KEY") || firebaseConfig.apiKey.includes("REEMPLAZAR")) {
+        setConfigError("Firebase no está configurado. Por favor, ingresa tus credenciales reales en SafetyApp.jsx.");
+        setLoading(false);
+        return;
+      }
 
-  const handleAddReport = (newReport) => {
-    setReports([newReport, ...reports]);
-    setSelectedReport(newReport);
-    setCurrentView('detail');
+      try {
+        if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) {
+          await signInWithCustomToken(auth, __initial_auth_token);
+        } else {
+          await signInAnonymously(auth);
+        }
+      } catch (err) {
+        console.error("Auth Error", err);
+        setConfigError("Error de autenticación: " + err.message);
+      }
+    };
+    
+    initAuth();
+    const unsubscribe = onAuthStateChanged(auth, setUserAuth);
+    return () => unsubscribe();
+  }, []);
+
+  useEffect(() => {
+    if (!userAuth || !db) return;
+    const reportsRef = collection(db, 'artifacts', appId, 'public', 'data', 'reports');
+    const unsubscribe = onSnapshot(reportsRef, (snapshot) => {
+      const data = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+      setReports(data.sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt)));
+      setLoading(false);
+    }, (err) => {
+      console.error("Firestore Snapshot Error", err);
+      setLoading(false);
+    });
+    return () => unsubscribe();
+  }, [userAuth]);
+
+  const handleAddReport = async (newReport) => {
+    if (!userAuth || !db) return;
+    try {
+      const reportsRef = collection(db, 'artifacts', appId, 'public', 'data', 'reports');
+      const docData = { ...newReport, createdAt: new Date().toISOString(), userId: userAuth.uid };
+      await addDoc(reportsRef, docData);
+      setSelectedReport(docData);
+      setCurrentView('detail');
+    } catch (err) { 
+      console.error("Save Error", err);
+      alert("Error al guardar el reporte. Verifica tu conexión.");
+    }
   };
 
-  const logout = () => {
-    setIsAuthenticated(false);
-    setCurrentView('form');
-  };
+  if (configError) {
+    return (
+      <div className="min-h-screen bg-slate-50 flex items-center justify-center p-4 text-center">
+        <div className="bg-white p-8 rounded-2xl shadow-xl max-w-md border border-red-100">
+          <AlertTriangle size={48} className="text-red-600 mx-auto mb-4" />
+          <h2 className="text-xl font-black text-slate-800 mb-2 uppercase tracking-tight">Error de Configuración</h2>
+          <p className="text-slate-600 mb-6 font-medium">{configError}</p>
+          <div className="bg-slate-50 p-4 rounded-lg text-left text-xs font-mono text-slate-500 overflow-auto border border-slate-200">
+            Paso: Ve a tu consola de Firebase &gt; Configuración &gt; Copia tu apiKey e introdúcela en el objeto firebaseConfig de SafetyApp.jsx.
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen bg-slate-50 text-slate-900 font-sans">
-      {/* Navbar Hydroglobal Perú */}
       <nav className="bg-[#003366] text-white shadow-xl sticky top-0 z-50 border-b-4 border-blue-400 no-print">
         <div className="max-w-5xl mx-auto px-4 py-3 flex justify-between items-center">
           <div className="flex items-center gap-3">
-            <div className="bg-white p-1 rounded-sm">
-              <ShieldCheck size={28} className="text-[#003366]" />
-            </div>
-            <div>
-              <h1 className="font-black text-xl tracking-tighter leading-none italic">{t.appTitle}</h1>
-              <p className="text-[9px] uppercase tracking-[0.2em] font-bold text-blue-200">{t.appSub}</p>
-            </div>
+            <div className="bg-white p-1 rounded-sm"><ShieldCheck size={28} className="text-[#003366]" /></div>
+            <div><h1 className="font-black text-xl italic leading-none">{t.appTitle}</h1><p className="text-[9px] uppercase font-bold text-blue-200 mt-0.5">{t.appSub}</p></div>
           </div>
-          
           <div className="flex gap-4 items-center">
-            {/* SELECTOR DE IDIOMA */}
-            <div className="flex bg-blue-900/50 p-1 rounded-lg border border-blue-700 items-center">
-              <Globe size={14} className="mx-2 text-blue-300" />
-              <button onClick={() => setLang('es')} className={`px-2 py-1 text-[10px] font-black rounded ${lang === 'es' ? 'bg-blue-500 text-white' : 'text-blue-300 hover:text-white'}`}>ES</button>
-              <button onClick={() => setLang('en')} className={`px-2 py-1 text-[10px] font-black rounded ${lang === 'en' ? 'bg-blue-500 text-white' : 'text-blue-300 hover:text-white'}`}>EN</button>
-              <button onClick={() => setLang('zh')} className={`px-2 py-1 text-[10px] font-black rounded ${lang === 'zh' ? 'bg-blue-500 text-white' : 'text-blue-300 hover:text-white'}`}>ZH</button>
+            <div className="flex bg-blue-900/50 p-1 rounded-lg border border-blue-700">
+              {['es', 'en', 'zh'].map(l => (
+                <button key={l} onClick={() => setLang(l)} className={`px-2 py-1 text-[10px] font-black rounded uppercase transition-colors ${lang === l ? 'bg-blue-500 text-white shadow-sm' : 'text-blue-300 hover:text-white'}`}>{l}</button>
+              ))}
             </div>
-
             {!isAuthenticated ? (
-              <button 
-                onClick={() => setCurrentView('login')}
-                className="text-[10px] font-black uppercase flex items-center gap-2 bg-blue-800/50 px-3 py-1.5 rounded border border-blue-700 hover:bg-blue-700 transition-colors"
-              >
-                <Lock size={14} /> {t.adminAccess}
-              </button>
+              <button onClick={() => setCurrentView('login')} className="text-[10px] font-black uppercase flex items-center gap-2 bg-blue-800/50 px-3 py-1.5 rounded border border-blue-700 hover:bg-blue-600 transition-colors"><Lock size={14} /> {t.adminAccess}</button>
             ) : (
-              <div className="flex items-center gap-4">
-                <button 
-                  onClick={() => setCurrentView('dashboard')}
-                  className="text-[10px] font-black uppercase text-blue-200 hover:text-white"
-                >
-                  {t.dashboard}
-                </button>
-                <button 
-                  onClick={logout}
-                  className="text-[10px] font-black uppercase flex items-center gap-2 bg-red-900/50 px-3 py-1.5 rounded border border-red-700 hover:bg-red-700 transition-colors"
-                >
-                  <LogOut size={14} /> {t.logout}
-                </button>
-              </div>
+              <button onClick={logout} className="text-[10px] font-black uppercase bg-red-900/50 px-3 py-1.5 rounded border border-red-700 hover:bg-red-600 transition-colors"><LogOut size={14} /> {t.logout}</button>
             )}
           </div>
         </div>
       </nav>
-
       <main className="max-w-5xl mx-auto px-4 py-6">
-        {currentView === 'form' && (
-          <ReportForm 
-            onSubmit={handleAddReport} 
-            t={t}
-          />
-        )}
-        {currentView === 'login' && (
-          <LoginView 
-            onLoginSuccess={() => { setIsAuthenticated(true); setCurrentView('dashboard'); }}
-            onCancel={() => setCurrentView('form')}
-            t={t}
-          />
-        )}
-        {currentView === 'dashboard' && isAuthenticated && (
-          <Dashboard 
-            reports={reports} 
-            onNewReport={() => setCurrentView('form')} 
-            onViewDetail={(r) => { setSelectedReport(r); setCurrentView('detail'); }}
-            t={t}
-          />
-        )}
-        {currentView === 'detail' && (
-          <ReportDetail 
-            report={selectedReport} 
-            emails={emailsSSOMA}
-            onBack={() => setCurrentView(isAuthenticated ? 'dashboard' : 'form')} 
-            t={t}
-          />
+        {loading ? <div className="text-center py-20 animate-pulse font-black text-blue-900 uppercase text-xs tracking-widest flex flex-col items-center gap-3">
+          <div className="w-10 h-10 border-4 border-blue-600 border-t-transparent rounded-full animate-spin"></div>
+          {lang === 'es' ? 'Sincronizando Sistema Hydroglobal...' : 'Syncing System...'}
+        </div> : (
+          <>
+            {currentView === 'form' && <ReportForm onSubmit={handleAddReport} t={t} />}
+            {currentView === 'login' && <LoginView onLoginSuccess={() => { setIsAuthenticated(true); setCurrentView('dashboard'); }} onCancel={() => setCurrentView('form')} t={t} />}
+            {currentView === 'dashboard' && isAuthenticated && <Dashboard reports={reports} onViewDetail={(r) => { setSelectedReport(r); setCurrentView('detail'); }} t={t} />}
+            {currentView === 'detail' && <ReportDetail report={selectedReport} onBack={() => setCurrentView(isAuthenticated ? 'dashboard' : 'form')} t={t} />}
+          </>
         )}
       </main>
     </div>
   );
+
+  function logout() {
+    setIsAuthenticated(false);
+    setCurrentView('form');
+  }
 }
 
-// --- VISTA: LOGIN ---
-function LoginView({ onLoginSuccess, onCancel, t }) {
-  const [user, setUser] = useState('');
-  const [pass, setPass] = useState('');
-  const [error, setError] = useState(false);
+// --- COMPONENTES SECUNDARIOS ---
 
-  const handleLogin = (e) => {
-    e.preventDefault();
-    if (user === 'admin' && pass === 'hydro2026') {
-      onLoginSuccess();
-    } else {
-      setError(true);
-      setTimeout(() => setError(false), 2000);
-    }
-  };
-
+function ReportForm({ onSubmit, t }) {
+  const [formData, setFormData] = useState({ category: 'SST', type: 'acto', risk: 'medio', area: '', description: '', reporter: '', action: '' });
   return (
-    <div className="max-w-md mx-auto mt-12 animate-in fade-in zoom-in duration-300">
-      <div className="bg-white rounded-2xl shadow-2xl border border-slate-200 overflow-hidden">
-        <div className="bg-[#003366] p-8 text-center text-white">
-          <div className="w-16 h-16 bg-blue-500/20 rounded-full flex items-center justify-center mx-auto mb-4 border-2 border-blue-400">
-            <Lock size={32} />
-          </div>
-          <h2 className="text-xl font-black italic">{t.loginTitle}</h2>
-          <p className="text-blue-300 text-[10px] font-bold uppercase tracking-widest mt-1">{t.loginSub}</p>
-        </div>
-        <form onSubmit={handleLogin} className="p-8 space-y-4">
-          <div>
-            <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">{t.user}</label>
-            <input 
-              type="text" 
-              className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-blue-600 outline-none"
-              value={user}
-              onChange={(e) => setUser(e.target.value)}
-            />
-          </div>
-          <div>
-            <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">{t.pass}</label>
-            <input 
-              type="password" 
-              className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-blue-600 outline-none"
-              value={pass}
-              onChange={(e) => setPass(e.target.value)}
-            />
-          </div>
-          {error && <p className="text-red-600 text-[10px] font-bold text-center uppercase animate-pulse">{t.loginError}</p>}
-          <button type="submit" className="w-full bg-[#003366] text-white py-4 rounded-xl font-black uppercase tracking-widest hover:bg-blue-900 transition-all shadow-lg">
-            {t.loginBtn}
-          </button>
-          <button type="button" onClick={onCancel} className="w-full text-slate-400 text-[10px] font-black uppercase hover:text-slate-600 transition-colors">
-            {t.backToForm}
-          </button>
-        </form>
+    <div className="max-w-2xl mx-auto bg-white rounded-2xl shadow-2xl border border-slate-200 overflow-hidden">
+      <div className="bg-[#003366] px-8 py-6 text-white text-center">
+        <h2 className="text-2xl font-black italic">{t.formTitle}</h2>
+        <p className="text-blue-300 text-[10px] font-bold uppercase tracking-[0.3em] mt-1">{t.formSub}</p>
       </div>
+      <form onSubmit={(e) => { e.preventDefault(); onSubmit(formData); }} className="p-8 space-y-6">
+        <div className="grid grid-cols-2 gap-4">
+          <div className="space-y-1">
+            <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">{t.system}</label>
+            <div className="flex bg-slate-100 p-1 rounded-xl border border-slate-200">
+              <button type="button" onClick={() => setFormData({...formData, category: 'SST'})} className={`flex-1 py-2 text-[10px] font-black rounded-lg transition-all ${formData.category==='SST'?'bg-white text-[#003366] shadow-md':'text-slate-400 hover:text-slate-600'}`}>{t.sst}</button>
+              <button type="button" onClick={() => setFormData({...formData, category: 'MA'})} className={`flex-1 py-2 text-[10px] font-black rounded-lg transition-all ${formData.category==='MA'?'bg-white text-emerald-700 shadow-md':'text-slate-400 hover:text-slate-600'}`}>{t.ma}</button>
+            </div>
+          </div>
+          <div className="space-y-1">
+            <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">{t.nature}</label>
+            <div className="flex bg-slate-100 p-1 rounded-xl border border-slate-200">
+              <button type="button" onClick={() => setFormData({...formData, type: 'acto'})} className={`flex-1 py-2 text-[10px] font-black rounded-lg transition-all ${formData.type==='acto'?'bg-white text-[#003366] shadow-md':'text-slate-400 hover:text-slate-600'}`}>{t.acto}</button>
+              <button type="button" onClick={() => setFormData({...formData, type: 'condicion'})} className={`flex-1 py-2 text-[10px] font-black rounded-lg transition-all ${formData.type==='condicion'?'bg-white text-[#003366] shadow-md':'text-slate-400 hover:text-slate-600'}`}>{t.condicion}</button>
+            </div>
+          </div>
+        </div>
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+          <InputField label={t.location} placeholder={t.placeholderArea} value={formData.area} onChange={v => setFormData({...formData, area:v})} />
+          <InputField label={t.name} placeholder={t.placeholderName} value={formData.reporter} onChange={v => setFormData({...formData, reporter:v})} />
+        </div>
+        <div className="space-y-3">
+          <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">{t.riskLevel}</label>
+          <div className="grid grid-cols-3 gap-2">
+            {['bajo','medio','alto'].map(l => (
+              <button key={l} type="button" onClick={()=>setFormData({...formData, risk:l})} className={`py-3 text-[10px] font-black uppercase rounded-xl border-2 transition-all ${formData.risk===l? (l==='bajo'?'border-emerald-500 bg-emerald-500 text-white shadow-lg':l==='medio'?'border-amber-500 bg-amber-500 text-white shadow-lg':'border-red-600 bg-red-600 text-white shadow-lg') : 'border-slate-100 text-slate-400 hover:border-slate-200'}`}>{t['risk'+l.charAt(0).toUpperCase()+l.slice(1)]}</button>
+            ))}
+          </div>
+          <div className="p-4 bg-blue-50 border border-blue-100 rounded-2xl animate-in fade-in duration-300">
+            <p className="text-[10px] font-black text-blue-800 uppercase flex items-center gap-2 mb-1"><Info size={14}/> {t.riskLegends[formData.risk].title}</p>
+            <p className="text-[10px] text-blue-900 leading-snug font-medium italic">{t.riskLegends[formData.risk].sst}</p>
+          </div>
+        </div>
+        <div className="space-y-1">
+          <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">{t.eventDesc}</label>
+          <textarea required rows="4" className="w-full p-4 bg-slate-50 border border-slate-200 rounded-2xl outline-none focus:ring-2 focus:ring-blue-600 focus:bg-white transition-all text-sm font-medium resize-none shadow-inner" placeholder={t.placeholderDesc} value={formData.description} onChange={e => setFormData({...formData, description:e.target.value})} />
+        </div>
+        <button type="submit" className="w-full bg-[#003366] text-white py-4 rounded-xl font-black uppercase shadow-xl hover:bg-black transition-all active:scale-[0.98] tracking-widest">{t.generateReport}</button>
+      </form>
     </div>
   );
 }
 
-// --- VISTA: DASHBOARD (ADMIN) ---
-function Dashboard({ reports, onNewReport, onViewDetail, t }) {
-  const stats = {
-    total: reports.length,
-    highRisk: reports.filter(r => r.risk === 'alto').length,
-    sst: reports.filter(r => r.category === 'SST').length,
-    ma: reports.filter(r => r.category === 'MA').length
-  };
+function LoginView({ onLoginSuccess, onCancel, t }) {
+  const [user, setUser] = useState('');
+  const [pass, setPass] = useState('');
+  const [error, setError] = useState(false);
+  return (
+    <div className="max-w-md mx-auto bg-white rounded-2xl shadow-2xl border border-slate-200 p-8 space-y-6 animate-in zoom-in duration-300">
+      <div className="text-center"><Lock className="mx-auto text-blue-900 mb-2" size={40} /><h2 className="text-xl font-black italic uppercase tracking-wider">{t.loginTitle}</h2></div>
+      <form onSubmit={(e) => { e.preventDefault(); if(user==='admin' && pass==='hydro2026') onLoginSuccess(); else { setError(true); setTimeout(()=>setError(false),2000); } }} className="space-y-4">
+        <div><label className="text-[10px] font-black uppercase text-slate-400 tracking-widest">{t.user}</label><input type="text" className="w-full p-3 bg-slate-50 border rounded-xl outline-none focus:ring-2 focus:ring-blue-600" value={user} onChange={e=>setUser(e.target.value)} /></div>
+        <div><label className="text-[10px] font-black uppercase text-slate-400 tracking-widest">{t.pass}</label><input type="password" className="w-full p-3 bg-slate-50 border rounded-xl outline-none focus:ring-2 focus:ring-blue-600" value={pass} onChange={e=>setPass(e.target.value)} /></div>
+        {error && <p className="text-red-600 text-[10px] font-bold text-center uppercase animate-pulse tracking-tighter">{t.loginError}</p>}
+        <button type="submit" className="w-full bg-[#003366] text-white py-4 rounded-xl font-black uppercase shadow-lg hover:bg-blue-900 transition-all">{t.loginBtn}</button>
+        <button type="button" onClick={onCancel} className="w-full text-slate-400 text-[10px] font-black uppercase hover:text-slate-600 transition-colors mt-2">{t.backToForm}</button>
+      </form>
+    </div>
+  );
+}
 
+function Dashboard({ reports, onViewDetail, t }) {
   return (
     <div className="space-y-6 animate-in fade-in duration-500">
-      <div className="flex justify-between items-center">
-        <h2 className="text-2xl font-extrabold text-[#003366]">{t.adminDashboard}</h2>
-        <div className="bg-emerald-100 text-emerald-700 px-3 py-1 rounded-full text-[10px] font-black uppercase border border-emerald-200">
-          {t.activeSession}
-        </div>
-      </div>
-
-      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-        <StatBox label={t.totalReports} value={stats.total} icon={<ClipboardList className="text-blue-600" size={18}/>} />
-        <StatBox label={t.criticalRisk} value={stats.highRisk} icon={<AlertTriangle className="text-red-600" size={18}/>} highlight />
-        <StatBox label={t.safetySST} value={stats.sst} icon={<ShieldCheck className="text-blue-800" size={18}/>} />
-        <StatBox label={t.envMA} value={stats.ma} icon={<Leaf className="text-green-600" size={18}/>} />
-      </div>
-
+      <h2 className="text-2xl font-extrabold text-[#003366] flex items-center gap-2"><Activity size={24}/> {t.adminDashboard}</h2>
       <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
-        <div className="px-6 py-4 border-b border-slate-100 flex justify-between items-center bg-slate-50">
-          <h3 className="font-bold text-[#003366] flex items-center gap-2 text-sm uppercase tracking-wider">
-            <BarChart3 size={16} /> {t.reportList}
-          </h3>
-        </div>
         <div className="divide-y divide-slate-100">
-          {reports.map((report) => (
-            <div 
-              key={report.id} 
-              onClick={() => onViewDetail(report)}
-              className="p-4 hover:bg-blue-50/50 transition-colors cursor-pointer flex justify-between items-center"
-            >
-              <div>
-                <div className="flex gap-2 mb-1">
-                  <span className={`text-[9px] font-black px-2 py-0.5 rounded ${report.risk === 'alto' ? 'bg-red-600 text-white' : 'bg-slate-200 text-slate-600'}`}>
-                    {report.risk.toUpperCase()}
-                  </span>
-                  <span className="text-[9px] font-black text-blue-800 uppercase">{report.id}</span>
+          {reports.length === 0 ? (
+            <div className="p-12 text-center text-slate-400 font-bold uppercase tracking-widest text-xs italic">
+              No se encontraron registros en la nube
+            </div>
+          ) : reports.map(r => (
+            <div key={r.id} onClick={()=>onViewDetail(r)} className="p-4 hover:bg-blue-50 cursor-pointer flex justify-between items-center transition-colors group">
+              <div className="flex-1 pr-4">
+                <div className="flex gap-2 mb-1.5 flex-wrap">
+                  <span className={`text-[9px] font-black px-2 py-0.5 rounded shadow-sm border ${r.risk==='alto'?'bg-red-600 text-white border-red-700':'bg-slate-200 text-slate-600 border-slate-300'}`}>{r.risk.toUpperCase()}</span>
+                  <span className="text-[9px] font-black text-blue-800 bg-blue-50 px-2 py-0.5 rounded border border-blue-100 uppercase">{r.category}</span>
                 </div>
-                <h4 className="font-bold text-slate-800 text-sm line-clamp-1">{report.description}</h4>
-                <p className="text-[10px] text-slate-400 font-bold uppercase tracking-tighter mt-1">{report.area} • {report.reporter}</p>
+                <h4 className="font-bold text-slate-800 text-sm group-hover:text-blue-700 transition-colors line-clamp-1 uppercase tracking-tight">{r.description}</h4>
+                <p className="text-[10px] text-slate-400 font-bold uppercase tracking-tighter mt-1">{r.area} • {r.reporter}</p>
               </div>
-              <ChevronRight className="text-slate-300" size={20} />
+              <ChevronRight className="text-slate-300 group-hover:text-blue-600 transition-all group-hover:translate-x-1" size={20} />
             </div>
           ))}
         </div>
@@ -486,109 +470,79 @@ function Dashboard({ reports, onNewReport, onViewDetail, t }) {
   );
 }
 
-// --- VISTA: DETALLE (FORMATO OFICIAL) ---
-function ReportDetail({ report, emails, onBack, t }) {
-  const generatePDF = () => window.print();
-
-  const sendEmails = () => {
-    const subject = encodeURIComponent(`${t.racsTitle} - ${t.appTitle} - ${report.id}`);
-    const body = encodeURIComponent(`Hello,\n\nFinding attached report:\n\nID: ${report.id}\nCategory: ${report.category}\nLocation: ${report.area}\nRisk: ${report.risk.toUpperCase()}\nReporter: ${report.reporter}\n\nDescription:\n${report.description}`);
+function ReportDetail({ report, onBack, t }) {
+  const emails = ["fransvargas@hydroglobal.hk", "saludocupacional@hydroglobal.hk"];
+  
+  const handleNotify = () => {
+    const subject = encodeURIComponent(`REPORTE RACS - ${report.id} - ${report.area}`);
+    const body = encodeURIComponent(`Detalle del Reporte:\nID: ${report.id}\nÁrea: ${report.area}\nReportado por: ${report.reporter}\nNivel Riesgo: ${report.risk.toUpperCase()}\n\nDescripción:\n${report.description}\n\nAcción Inmediata:\n${report.action || 'No especificada'}`);
     window.location.href = `mailto:${emails.join(',')}?subject=${subject}&body=${body}`;
   };
 
   return (
-    <div className="animate-in slide-in-from-right duration-300 pb-10">
-      <button onClick={onBack} className="mb-6 flex items-center gap-2 text-blue-700 font-black hover:underline no-print">
-        <ArrowLeft size={18} /> {t.back}
-      </button>
-
-      <div className="bg-white border-[1px] border-black shadow-xl max-w-4xl mx-auto p-0" id="printable-area">
-        {/* Encabezado Oficial */}
+    <div className="pb-10 animate-in slide-in-from-right duration-300">
+      <button onClick={onBack} className="mb-6 flex items-center gap-2 text-blue-700 font-black hover:underline no-print tracking-widest text-xs uppercase"><ArrowLeft size={16} /> {t.back}</button>
+      <div className="bg-white border-[1px] border-black shadow-2xl max-w-4xl mx-auto p-0" id="printable-area">
+        {/* Cabecera FR-018 */}
         <div className="grid grid-cols-6 border-b-[1px] border-black">
-          <div className="col-span-1 p-2 border-r-[1px] border-black flex items-center justify-center bg-slate-50 font-black text-[10px] text-center italic">
-            {t.appTitle}
+          <div className="col-span-1 p-2 border-r-[1px] border-black flex items-center justify-center font-black text-[11px] text-center italic bg-slate-50 uppercase tracking-tighter">HYDROGLOBAL PERÚ</div>
+          <div className="col-span-3 p-2 border-r-[1px] border-black text-center flex flex-col justify-center bg-white">
+            <h2 className="text-[9px] font-bold uppercase tracking-[0.1em]">{t.docManagement}</h2>
+            <h1 className="text-[11px] font-black uppercase leading-tight tracking-tight px-2">{t.racsTitle}</h1>
+            <p className="text-[8px] font-bold text-slate-600 uppercase mt-0.5">{t.racsArea}</p>
           </div>
-          <div className="col-span-3 p-2 border-r-[1px] border-black text-center flex flex-col justify-center">
-            <h2 className="text-[10px] font-bold uppercase">{t.docManagement}</h2>
-            <h1 className="text-[11px] font-black uppercase leading-tight">{t.racsTitle}</h1>
-            <p className="text-[9px] font-bold text-slate-600 uppercase">{t.racsArea}</p>
-          </div>
-          <div className="col-span-2 text-[9px] font-bold divide-y-[1px] divide-black">
-            <div className="p-1 uppercase">{t.code}: HGP-SGIII-SST-FR-018</div>
-            <div className="p-1 uppercase">{t.date}: 10/01/2026</div>
-            <div className="p-1 uppercase">{t.rev}. 00 / {t.page} 1 de 1</div>
+          <div className="col-span-2 text-[8px] font-bold divide-y-[1px] divide-black uppercase bg-slate-50">
+            <div className="p-1.5 flex justify-between"><span>{t.code}:</span> <span>HGP-SGIII-SST-FR-018</span></div>
+            <div className="p-1.5 flex justify-between"><span>{t.date}:</span> <span>10/01/2026</span></div>
+            <div className="p-1.5 flex justify-between"><span>{t.rev}.:</span> <span>00 / {t.page} 1/1</span></div>
           </div>
         </div>
-
-        <div className="p-6 space-y-4">
-          <div className="grid grid-cols-2 gap-4 text-[11px]">
-            <div className="border border-black p-2 bg-slate-50">
-              <span className="block font-black border-b border-black mb-1 uppercase">{t.reporterData}</span>
-              <p><span className="font-bold">{t.name}:</span> {report.reporter}</p>
-              <p><span className="font-bold">{t.location}:</span> {report.area}</p>
-              <p><span className="font-bold">{t.date}:</span> {report.date}</p>
+        
+        <div className="p-8 space-y-6">
+          <div className="grid grid-cols-2 gap-6 text-[10px]">
+            <div className="border border-black p-3 rounded shadow-sm">
+              <span className="block font-black border-b border-black mb-2 uppercase tracking-widest text-blue-900">{t.reporterData}</span>
+              <p className="mt-1 flex justify-between"><span className="font-bold">{t.name}:</span> <span className="text-right font-medium">{report.reporter}</span></p>
+              <p className="flex justify-between"><span className="font-bold">{t.location}:</span> <span className="text-right font-medium">{report.area}</span></p>
+              <p className="flex justify-between"><span className="font-bold">{t.date}:</span> <span className="text-right font-medium italic">{report.date || new Date().toISOString().split('T')[0]}</span></p>
             </div>
-            <div className="border border-black p-2 bg-slate-50">
-              <span className="block font-black border-b border-black mb-1 uppercase">{t.classification}</span>
-              <div className="grid grid-cols-2 gap-2 mt-2 font-bold text-[10px]">
-                <div className="flex items-center gap-1">
-                  <div className={`w-3 h-3 border border-black ${report.category === 'SST' ? 'bg-black' : ''}`}></div> {t.sst}
-                </div>
-                <div className="flex items-center gap-1">
-                  <div className={`w-3 h-3 border border-black ${report.category === 'MA' ? 'bg-black' : ''}`}></div> {t.ma}
-                </div>
-                <div className="flex items-center gap-1">
-                  <div className={`w-3 h-3 border border-black ${report.type === 'acto' ? 'bg-black' : ''}`}></div> {t.acto}
-                </div>
-                <div className="flex items-center gap-1">
-                  <div className={`w-3 h-3 border border-black ${report.type === 'condicion' ? 'bg-black' : ''}`}></div> {t.condicion}
-                </div>
+            <div className="border border-black p-3 rounded shadow-sm">
+              <span className="block font-black border-b border-black mb-2 uppercase tracking-widest text-blue-900">{t.classification}</span>
+              <div className="grid grid-cols-1 gap-1.5 mt-1 font-bold uppercase">
+                <div className="flex items-center gap-2"><div className="w-3 h-3 border border-black bg-black"></div> {report.category}</div>
+                <div className="flex items-center gap-2"><div className="w-3 h-3 border border-black bg-black"></div> {report.type}</div>
               </div>
             </div>
           </div>
-
-          <div className="border border-black p-2">
-            <span className="block font-black text-[10px] uppercase bg-slate-100 p-1 mb-2 border-b border-black">{t.riskLevel}</span>
-            <div className="grid grid-cols-3 gap-2 text-center text-[9px] font-bold mb-3">
-              <div className={`p-1 border ${report.risk === 'bajo' ? 'bg-emerald-500 text-white border-emerald-600' : 'border-slate-300'}`}>{t.riskBajo}</div>
-              <div className={`p-1 border ${report.risk === 'medio' ? 'bg-amber-500 text-white border-amber-600' : 'border-slate-300'}`}>{t.riskMedio}</div>
-              <div className={`p-1 border ${report.risk === 'alto' ? 'bg-red-600 text-white border-red-700' : 'border-slate-300'}`}>{t.riskAlto}</div>
-            </div>
-            <div className="text-[9px] space-y-1 italic leading-tight text-slate-600 px-2">
-              <p><strong>{t.riskLegends[report.risk].title}:</strong></p>
-              <p>{t.riskLegends[report.risk].sst}</p>
-              <p>{t.riskLegends[report.risk].ma}</p>
-            </div>
+          
+          <div className="border border-black p-4 rounded bg-slate-50 shadow-inner">
+            <span className="block font-black text-[10px] uppercase mb-2 border-b border-slate-300 pb-1">{t.riskLevel}: <span className="text-red-700">{report.risk.toUpperCase()}</span></span>
+            <p className="text-[10px] font-black text-slate-800 uppercase mb-1 tracking-tight">{t.riskLegends[report.risk].title}</p>
+            <p className="text-[10px] italic text-slate-600 leading-relaxed font-medium">{t.riskLegends[report.risk].sst}</p>
+          </div>
+          
+          <div className="border border-black p-4 min-h-[140px] text-[10px] rounded shadow-sm bg-white">
+            <span className="block font-black uppercase mb-2 border-b border-slate-100 pb-1">{t.eventDesc}:</span>
+            <p className="text-slate-700 leading-relaxed whitespace-pre-wrap font-medium">{report.description}</p>
           </div>
 
-          <div className="border border-black p-3 min-h-[100px]">
-            <span className="block font-black text-[10px] uppercase mb-1 border-b border-slate-100">{t.eventDesc}:</span>
-            <p className="text-xs text-slate-700">{report.description}</p>
+          <div className="border border-black p-4 min-h-[100px] text-[10px] rounded shadow-sm bg-white">
+            <span className="block font-black uppercase mb-2 border-b border-slate-100 pb-1">{t.immediateAction}:</span>
+            <p className="text-slate-700 leading-relaxed font-medium">{report.action || '---'}</p>
           </div>
-
-          <div className="border border-black p-3 min-h-[80px]">
-            <span className="block font-black text-[10px] uppercase mb-1 border-b border-slate-100">{t.immediateAction}:</span>
-            <p className="text-xs">{report.action || '---'}</p>
-          </div>
-
-          <div className="grid grid-cols-2 gap-10 pt-16 pb-4 text-[10px] font-bold text-center">
-            <div className="border-t border-black pt-1 uppercase">{t.signatureReporter}</div>
-            <div className="border-t border-black pt-1 uppercase">{t.signatureSSOMA}</div>
+          
+          <div className="grid grid-cols-2 gap-20 pt-16 pb-6 text-[10px] font-bold text-center uppercase">
+            <div className="border-t-2 border-slate-300 pt-2 text-slate-700">{t.signatureReporter}</div>
+            <div className="border-t-2 border-slate-300 pt-2 text-slate-700">{t.signatureSSOMA}</div>
           </div>
         </div>
       </div>
-
-      <div className="mt-8 flex flex-col sm:flex-row gap-4 no-print max-w-4xl mx-auto">
-        <button 
-          onClick={generatePDF}
-          className="flex-1 flex items-center justify-center gap-2 bg-slate-800 text-white py-4 rounded-lg font-black hover:bg-black transition-all shadow-xl"
-        >
+      
+      <div className="mt-10 flex flex-col sm:flex-row gap-4 no-print max-w-4xl mx-auto px-4 sm:px-0">
+        <button onClick={() => window.print()} className="flex-1 bg-slate-800 text-white py-4 rounded-xl font-black shadow-2xl hover:bg-black transition-all active:scale-[0.98] uppercase tracking-widest text-xs flex items-center justify-center gap-3">
           <Download size={20} /> {t.downloadPDF}
         </button>
-        <button 
-          onClick={sendEmails}
-          className="flex-1 flex items-center justify-center gap-2 bg-blue-700 text-white py-4 rounded-lg font-black hover:bg-blue-800 transition-all shadow-xl shadow-blue-600/20"
-        >
+        <button onClick={handleNotify} className="flex-1 bg-blue-700 text-white py-4 rounded-xl font-black shadow-2xl hover:bg-blue-800 transition-all active:scale-[0.98] uppercase tracking-widest text-xs flex items-center justify-center gap-3 border-b-4 border-blue-900">
           <Mail size={20} /> {t.notifySSOMA}
         </button>
       </div>
@@ -596,149 +550,18 @@ function ReportDetail({ report, emails, onBack, t }) {
   );
 }
 
-// --- VISTA: FORMULARIO (LIBRE) ---
-function ReportForm({ onSubmit, t }) {
-  const [formData, setFormData] = useState({
-    category: 'SST',
-    type: 'acto',
-    risk: 'medio',
-    area: '',
-    description: '',
-    reporter: '',
-    action: ''
-  });
-
-  const handleSubmit = (e) => {
-    e.preventDefault();
-    const newReport = {
-      ...formData,
-      id: `HGP-RACS-${new Date().getFullYear()}-${Math.floor(1000 + Math.random() * 9000)}`,
-      date: new Date().toISOString().split('T')[0],
-      status: 'pendiente'
-    };
-    onSubmit(newReport);
-  };
-
+function InputField({ label, placeholder, value, onChange }) {
   return (
-    <div className="max-w-2xl mx-auto animate-in slide-in-from-bottom duration-500">
-      <div className="bg-white rounded-2xl shadow-2xl border border-slate-200 overflow-hidden">
-        <div className="bg-[#003366] px-8 py-6 text-white text-center">
-          <h2 className="text-2xl font-black italic uppercase tracking-wider">{t.formTitle}</h2>
-          <p className="text-blue-300 text-[10px] font-bold uppercase tracking-[0.3em]">{t.formSub}</p>
-        </div>
-
-        <form onSubmit={handleSubmit} className="p-8 space-y-6">
-          <div className="grid grid-cols-2 gap-4">
-            <div className="space-y-1">
-              <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">{t.system}</label>
-              <div className="flex bg-slate-100 p-1 rounded-xl">
-                <button type="button" onClick={() => setFormData({...formData, category: 'SST'})} className={`flex-1 py-2 text-[10px] font-black rounded-lg transition-all ${formData.category === 'SST' ? 'bg-white text-[#003366] shadow-sm' : 'text-slate-400'}`}>{t.sst}</button>
-                <button type="button" onClick={() => setFormData({...formData, category: 'MA'})} className={`flex-1 py-2 text-[10px] font-black rounded-lg transition-all ${formData.category === 'MA' ? 'bg-white text-emerald-700 shadow-sm' : 'text-slate-400'}`}>{t.ma}</button>
-              </div>
-            </div>
-            <div className="space-y-1">
-              <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">{t.nature}</label>
-              <div className="flex bg-slate-100 p-1 rounded-xl">
-                <button type="button" onClick={() => setFormData({...formData, type: 'acto'})} className={`flex-1 py-2 text-[10px] font-black rounded-lg transition-all ${formData.type === 'acto' ? 'bg-white text-[#003366] shadow-sm' : 'text-slate-400'}`}>{t.acto}</button>
-                <button type="button" onClick={() => setFormData({...formData, type: 'condicion'})} className={`flex-1 py-2 text-[10px] font-black rounded-lg transition-all ${formData.type === 'condicion' ? 'bg-white text-[#003366] shadow-sm' : 'text-slate-400'}`}>{t.condicion}</button>
-              </div>
-            </div>
-          </div>
-
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-            <InputField label={t.location} icon={<MapPin size={16}/>} placeholder={t.placeholderArea} value={formData.area} onChange={v => setFormData({...formData, area: v})} t={t} />
-            <InputField label={t.name} icon={<User size={16}/>} placeholder={t.placeholderName} value={formData.reporter} onChange={v => setFormData({...formData, reporter: v})} t={t} />
-          </div>
-
-          <div className="space-y-3">
-            <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">{t.riskLevel}</label>
-            <div className="grid grid-cols-3 gap-2">
-              <button key="bajo" type="button" onClick={() => setFormData({...formData, risk: 'bajo'})} className={`
-                py-3 text-[10px] font-black uppercase rounded-xl border-2 transition-all
-                ${formData.risk === 'bajo' ? 'border-emerald-500 bg-emerald-500 text-white shadow-lg shadow-emerald-200' : 'border-slate-100 text-slate-400 bg-slate-50 hover:bg-slate-100'}
-              `}>{t.riskBajo}</button>
-              <button key="medio" type="button" onClick={() => setFormData({...formData, risk: 'medio'})} className={`
-                py-3 text-[10px] font-black uppercase rounded-xl border-2 transition-all
-                ${formData.risk === 'medio' ? 'border-amber-500 bg-amber-500 text-white shadow-lg shadow-amber-200' : 'border-slate-100 text-slate-400 bg-slate-50 hover:bg-slate-100'}
-              `}>{t.riskMedio}</button>
-              <button key="alto" type="button" onClick={() => setFormData({...formData, risk: 'alto'})} className={`
-                py-3 text-[10px] font-black uppercase rounded-xl border-2 transition-all
-                ${formData.risk === 'alto' ? 'border-red-600 bg-red-600 text-white shadow-lg shadow-red-200' : 'border-slate-100 text-slate-400 bg-slate-50 hover:bg-slate-100'}
-              `}>{t.riskAlto}</button>
-            </div>
-            
-            {/* LEYENDA DINÁMICA EN EL FORMULARIO */}
-            <div className="p-4 bg-blue-50 border border-blue-100 rounded-2xl space-y-2 animate-in fade-in slide-in-from-top-2 duration-300">
-              <div className="flex items-center gap-2 text-blue-800">
-                <Info size={18} />
-                <span className="text-[11px] font-black uppercase tracking-tight">{t.riskLegends[formData.risk].title}</span>
-              </div>
-              <p className="text-[10px] text-blue-700 font-bold leading-tight uppercase opacity-80 italic">{t.riskRef}</p>
-              <p className="text-[10px] text-blue-900 leading-snug font-medium">{t.riskLegends[formData.risk].sst}</p>
-              <p className="text-[10px] text-blue-900 leading-snug font-medium">{t.riskLegends[formData.risk].ma}</p>
-            </div>
-          </div>
-
-          <div className="space-y-1">
-            <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">{t.eventDesc}</label>
-            <textarea 
-              required
-              rows="4"
-              className="w-full p-4 bg-slate-50 border border-slate-200 rounded-2xl focus:outline-none focus:ring-2 focus:ring-blue-600 focus:bg-white transition-all text-sm font-medium resize-none"
-              placeholder={t.placeholderDesc}
-              value={formData.description}
-              onChange={e => setFormData({...formData, description: e.target.value})}
-            />
-          </div>
-
-          <div className="space-y-1">
-            <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">{t.immediateAction} ({t.ma.toLowerCase() === 'environment' ? 'Optional' : 'Opcional'})</label>
-            <textarea 
-              rows="2"
-              className="w-full p-4 bg-slate-50 border border-slate-200 rounded-2xl focus:outline-none focus:ring-2 focus:ring-blue-600 focus:bg-white transition-all text-sm font-medium resize-none"
-              placeholder={t.placeholderAction}
-              value={formData.action}
-              onChange={e => setFormData({...formData, action: e.target.value})}
-            />
-          </div>
-
-          <button type="submit" className="w-full bg-[#003366] text-white py-4 rounded-2xl font-black uppercase tracking-widest hover:bg-black transition-all shadow-xl shadow-blue-900/20 active:scale-[0.98]">
-            {t.generateReport}
-          </button>
-        </form>
-      </div>
-    </div>
-  );
-}
-
-// --- COMPONENTES AUXILIARES ---
-function StatBox({ label, value, icon, highlight }) {
-  return (
-    <div className={`bg-white p-4 rounded-xl border-b-4 ${highlight ? 'border-red-600' : 'border-blue-800'} shadow-sm border-x border-t border-slate-200`}>
-      <div className="flex justify-between items-center mb-2">
-        <div className="bg-slate-50 p-2 rounded-lg">{icon}</div>
-        <span className="text-2xl font-black text-slate-800">{value}</span>
-      </div>
-      <p className="text-[9px] font-black text-slate-400 uppercase tracking-widest leading-none">{label}</p>
-    </div>
-  );
-}
-
-function InputField({ label, icon, placeholder, value, onChange, t }) {
-  return (
-    <div className="space-y-1">
+    <div className="space-y-1.5">
       <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">{label}</label>
-      <div className="relative">
-        <div className="absolute left-4 top-1/2 -translate-y-1/2 text-blue-600">{icon}</div>
-        <input 
-          required
-          type="text"
-          className="w-full pl-11 pr-4 py-3 bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-600 focus:bg-white transition-all text-sm font-medium"
-          placeholder={placeholder}
-          value={value}
-          onChange={e => onChange(e.target.value)}
-        />
-      </div>
+      <input 
+        required 
+        type="text" 
+        className="w-full p-3.5 bg-slate-50 border border-slate-200 rounded-2xl outline-none focus:ring-2 focus:ring-blue-600 focus:bg-white transition-all text-sm font-bold shadow-inner" 
+        placeholder={placeholder} 
+        value={value} 
+        onChange={e => onChange(e.target.value)} 
+      />
     </div>
   );
 }
